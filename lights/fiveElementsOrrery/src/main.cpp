@@ -1,6 +1,8 @@
 #include <Arduino.h>
 #include <painlessMesh.h>
 #include <FastLED.h>
+#include "palettes.h"
+// #include <vector>
 
 #define BUILTIN_LED 2
 #define DATA_PIN 5
@@ -10,6 +12,10 @@
 #define   MESH_PORT       1045
 
 #define NUM_LEDS 512
+const uint16_t stripLength = NUM_LEDS;
+const uint8_t nStrips = 1;
+const uint16_t num_leds = stripLength * nStrips;
+int stripDirection[nStrips] = {1};
 #define INTERVAL 20000 //50 fps
 #define   BLINK_PERIOD    3000000 // microseconds until cycle repeat
 #define   BLINK_DURATION  100000  // microseconds LED is on for
@@ -48,12 +54,9 @@ typedef struct networkState {
 };
 networkState network = {false, true, false};
 
-
-#include <pattern.h>
-#include <rainbow.h>
-
-void updateStatusLed();
+void updateStatusLed(uint32_t currentTime);
 void blendFrames();
+uint16_t nX(uint8_t n, uint16_t x);
 void updatePatterns();
 void processMessage();
 void receivedCallback(uint32_t from, String &msg);
@@ -63,6 +66,28 @@ void delayCalcs();
 void nodeTimeAdjustedCallback(int32_t offset);
 void delayReceivedCallback(uint32_t from, int32_t delay);
 
+#include "patterns/pattern.h"
+#include "patterns/blendwave.h"
+#include "patterns/rainbow.h"
+#include "patterns/rain.h"
+
+typedef struct patternList {
+  Blendwave blendwave;
+  Rainbow rainbow;
+  Rain rain;
+};
+patternList patterns = {
+  Blendwave(1, 1, 255, true),
+  Rainbow(5, 5, 250, true),
+  Rain(50, 10, 150, true),
+};
+
+#define N_PATTERNS 3 
+Pattern* patternPointers[N_PATTERNS] = {
+  &patterns.blendwave,
+  &patterns.rainbow,
+  &patterns.rain
+};
 
 
 
@@ -92,6 +117,10 @@ void setup() {
   mesh.onChangedConnections(&changedConnectionCallback);
   mesh.onNodeTimeAdjusted(&nodeTimeAdjustedCallback);
   mesh.onNodeDelayReceived(&delayReceivedCallback);
+
+  currentBlending = LINEARBLEND;
+  currentPalette = Deep_Skyblues_gp;
+  targetPalette = Deep_Skyblues_gp;
   
 }
 
@@ -101,10 +130,11 @@ void loop() {
   if (network.calc_delay) {
     delayCalcs();
   }
-  updateStatusLed();
+  uint32_t currentTime = mesh.getNodeTime();
+  updateStatusLed(currentTime);
 
   // output to the lights
-  if ( (int) mainState.nextUpdate - (int) mesh.getNodeTime() < 0) {
+  if ( (int) mainState.nextUpdate - (int) currentTime < 0) {
     blendFrames();
     FastLED.show();
     mainState.lastUpdate = mainState.nextUpdate;
@@ -131,16 +161,16 @@ void loop() {
   }
 }
 
-void updateStatusLed() {
+void updateStatusLed(uint32_t currentTime) {
   // run the blinking status light
   network.ledOn = true;
-  uint32_t cycleTime = mesh.getNodeTime() % BLINK_PERIOD;
+  uint32_t cycleTime = currentTime % BLINK_PERIOD;
   for (uint8_t i = 0; i < (mesh.getNodeList().size() + 1); i++) {
     uint32_t onTime = BLINK_DURATION * i * 2;
     if (cycleTime > onTime && cycleTime < onTime + BLINK_DURATION)
       network.ledOn = false;
   }
-  digitalWrite(BUILTIN_LED, network.ledOn);
+  digitalWrite(BUILTIN_LED, !network.ledOn);
 }
 
 void blendFrames(){
@@ -151,8 +181,23 @@ void blendFrames(){
   }
 }
 
+uint16_t nX(uint8_t n, uint16_t x) {
+  uint16_t i;
+  n = min(n, nStrips);
+  x = min(x, uint16_t(stripLength - 1));
+
+  if ( stripDirection[n] == 1 ) {
+    i = (n) * stripLength + x;
+  } else {
+    i = (n) * stripLength + stripLength - x - 1;
+  }
+  return min(i, num_leds);
+}
+
 void updatePatterns() {
-  // pass
+  for (int i=0; i<N_PATTERNS; i++){
+    patternPointers[i]->print();
+  }
 }
 
 void processMessage() {

@@ -1,3 +1,5 @@
+#ifndef PATTERN_DEFINED
+#define PATTERN_DEFINED
 #include <Arduino.h>
 
 class Pattern {
@@ -17,5 +19,9 @@ class Pattern {
         };
 
         virtual void update(){};
+        virtual void print() {
+            Serial.println("Pattern Base Class");
+        };
 
 };
+#endif
